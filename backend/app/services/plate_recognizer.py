@@ -116,17 +116,19 @@ class PlateRecognizer:
         return kept
 
     def _read_text(self, plate_crop):
-        # Plates are often small in wide traffic shots; upscale and boost
-        # contrast so EasyOCR has enough resolved detail to work with
+        # Plates are often small in wide traffic shots; upscale so EasyOCR
+        # has enough resolved detail to work with. CLAHE contrast
+        # enhancement was tried here too, but on real test crops it
+        # measurably hurt EasyOCR's confidence and output (0.068 vs 0.685
+        # on the same crop, with CLAHE producing garbled text) rather than
+        # helping — likely over-amplifying JPEG/compression noise on
+        # crops this small — so it's deliberately not applied.
         upscaled = cv2.resize(
             plate_crop, None, fx=8, fy=8, interpolation=cv2.INTER_LANCZOS4
         )
         gray = cv2.cvtColor(upscaled, cv2.COLOR_BGR2GRAY)
-        enhanced = cv2.createCLAHE(
-            clipLimit=3.0, tileGridSize=(8, 8)
-        ).apply(gray)
 
-        readings = self.reader.readtext(enhanced)
+        readings = self.reader.readtext(gray)
 
         if not readings:
             return None, None
