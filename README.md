@@ -120,7 +120,15 @@ a proven-optimal one.
   wide traffic-camera-style footage are often only tens of pixels
   wide — below what any OCR engine can reliably read, even with the
   upscaling + contrast enhancement this project applies. Real ANPR
-  deployments use dedicated close-range cameras for this reason.
+  deployments use dedicated close-range cameras for this reason. (A
+  CLAHE-removal tweak was tried and reverted after broader testing
+  showed it wasn't actually an improvement — see the git history
+  around `plate_recognizer.py` if picking this back up.) The natural
+  next step, not yet attempted, is a Nepali-specific OCR model instead
+  of generic EasyOCR — a labeled Devanagari plate-character dataset
+  (`Nepali Number Plate Characters Dataset`, Kaggle, 26,537 images)
+  exists for this but training/integrating one is a substantial
+  separate project.
 - **Video plate reading is throttled, not run every frame.** EasyOCR
   takes roughly 1-2 seconds per plate crop on CPU, so `read_plates=true`
   on video retries each tracked vehicle at most every 20 frames, stops
@@ -131,11 +139,22 @@ a proven-optimal one.
 - **Real-time streaming (websockets) is not implemented.** `websockets`
   is listed in `requirements.txt` for future use but nothing in the
   app uses it yet — everything is request/response today.
-- Ultralytics `YOLO` model instances are not shared across services
-  (`VehicleDetector`, `VideoProcessor`, `PlateRecognizer` each load
-  their own) because they aren't safe for concurrent inference from
-  multiple threads, which this API's threadpooled video processing
-  can trigger.
+- **Model access is serialized with locks, not just separated.**
+  Ultralytics `YOLO` models (and EasyOCR's reader) aren't guaranteed
+  safe for concurrent inference from multiple threads. Each service
+  (`VehicleDetector`, `VideoProcessor`, `PlateRecognizer`) loads its
+  own model instance *and* holds a lock around calls into it, since
+  every endpoint runs its detection work in a threadpool and the same
+  shared instance is genuinely reachable from concurrent requests
+  (e.g. a `/video` upload and a `/plate` upload at the same time).
+  `VideoProcessor`'s lock spans its entire `process()` call rather
+  than each frame — `persist=True` keeps ByteTrack state on the model
+  across a whole video, so two videos processed concurrently could
+  otherwise interleave frames and corrupt each other's tracking even
+  with per-frame locking. Verified with a concurrency test: one
+  `/video` request (with `read_plates=true`) alongside three
+  concurrent `/plate` requests, all four completing correctly with no
+  deadlock.
 - **Video output requires `ffmpeg` on `PATH`.** The `opencv-python`
   wheel installed by `requirements.txt` has no working H.264 encoder
   (no `libx264`, and its hardware-encoder fallback needs a device that
