@@ -169,6 +169,8 @@ async def detect_video(
         "truck"
     ] = Form("all"),
 
+    read_plates: bool = Form(False),
+
     file: UploadFile = File(...)
 ):
     extension = Path(file.filename or "").suffix.lower()
@@ -195,7 +197,8 @@ async def detect_video(
             video_processor.process,
             input_path=str(input_path),
             output_path=str(output_path),
-            vehicle_type=vehicle_type
+            vehicle_type=vehicle_type,
+            plate_recognizer=plate_recognizer if read_plates else None
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -203,11 +206,13 @@ async def detect_video(
         input_path.unlink(missing_ok=True)
 
     download_url = f"/api/detection/video/{output_path.name}"
+    plates = result.get("plates", {})
 
     with get_db_session() as db:
         db.add(DetectionRecord(
             source_type="video",
             vehicle_type=vehicle_type,
+            detections=plates or None,
             frames_processed=result["frames_processed"],
             unique_vehicles=result["unique_vehicles"],
             download_url=download_url
@@ -219,7 +224,8 @@ async def detect_video(
         "vehicle_type": vehicle_type,
         "frames_processed": result["frames_processed"],
         "unique_vehicles": result["unique_vehicles"],
-        "download_url": download_url
+        "download_url": download_url,
+        "plates": plates
     }
 
 
