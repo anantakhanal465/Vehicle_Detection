@@ -136,11 +136,25 @@ async def detect_plate(file: UploadFile = File(...)):
 
     unmatched_plates = []
 
+    # The ensemble can return two candidates for the same vehicle that
+    # don't overlap enough for NMS to merge them (e.g. one model's box on
+    # the real plate, another's a spurious nearby detection). Keep only
+    # the higher-confidence one per vehicle; demote the loser to
+    # unmatched rather than silently discarding it.
     for plate in plates:
         vehicle = _match_plate_to_vehicle(plate["bounding_box"], vehicles)
 
-        if vehicle is not None:
+        if vehicle is None:
+            unmatched_plates.append(plate)
+            continue
+
+        existing = vehicle["license_plate"]
+
+        if existing is None:
             vehicle["license_plate"] = plate
+        elif plate["detection_confidence"] > existing["detection_confidence"]:
+            vehicle["license_plate"] = plate
+            unmatched_plates.append(existing)
         else:
             unmatched_plates.append(plate)
 
