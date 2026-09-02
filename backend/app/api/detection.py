@@ -268,5 +268,8 @@ async def download_video(filename: str):
     return FileResponse(
         path=file_path,
         media_type="video/mp4",
-        filename=filename
+        filename=filename,
+        # "attachment" (FileResponse's default when filename is set) makes
+        # Chrome refuse to play the file inline in a <video> element
+        content_disposition_type="inline"
     )

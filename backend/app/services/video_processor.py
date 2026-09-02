@@ -1,3 +1,5 @@
+import shutil
+import subprocess
 from pathlib import Path
 
 import cv2
@@ -52,10 +54,16 @@ class VideoProcessor:
         if fps <= 0:
             fps = 30
 
+        # This build of opencv-python can't encode real H.264 (no libx264,
+        # and its hardware-encoder fallback has no device to use here), so
+        # it writes MPEG-4 Part 2 instead. That plays fine in VLC/ffplay
+        # but browsers can't decode it at all — the output gets transcoded
+        # to H.264 via ffmpeg below before being handed back as output_path.
+        raw_output_path = Path(output_path).with_suffix(".raw.mp4")
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
 
         writer = cv2.VideoWriter(
-            output_path,
+            str(raw_output_path),
             fourcc,
             fps,
             (width, height)
@@ -207,6 +215,11 @@ class VideoProcessor:
         cap.release()
         writer.release()
 
+        if self._transcode_to_h264(raw_output_path, output_path):
+            raw_output_path.unlink(missing_ok=True)
+        else:
+            shutil.move(str(raw_output_path), output_path)
+
         plates = {
             str(track_id): {
                 "text": entry["text"],
@@ -231,6 +244,27 @@ class VideoProcessor:
             draw.text((x, y), text, font=self._font, fill=(0, 255, 0))
 
         return cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+
+    def _transcode_to_h264(self, source_path: Path, dest_path: str) -> bool:
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg", "-y",
+                    "-i", str(source_path),
+                    "-c:v", "libx264",
+                    "-pix_fmt", "yuv420p",
+                    "-movflags", "+faststart",
+                    dest_path
+                ],
+                check=True,
+                capture_output=True
+            )
+            return True
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            # ffmpeg missing or transcode failed — caller falls back to
+            # the raw mp4v file (downloadable/playable outside browsers,
+            # just not inline in a <video> element)
+            return False
 
     def _maybe_read_plate(
         self,

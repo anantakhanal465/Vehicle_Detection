@@ -12,8 +12,10 @@ plates.
 - **YOLOv8 license-plate detector** ([Koushim/yolov8-license-plate-detection](https://huggingface.co/Koushim/yolov8-license-plate-detection), MIT) for plate localization
 - **EasyOCR** (`ne` + `en`) for reading plate text
 - **FastAPI** + **SQLAlchemy** (SQLite by default, swappable to Postgres)
+- **ffmpeg** (system binary) to transcode processed video output to H.264 — see note below
+- **React + Vite + TypeScript + Tailwind** frontend
 
-## Setup
+## Backend setup
 
 ```bash
 python3 -m venv .venv
@@ -45,6 +47,18 @@ By default, detection history is stored in a local SQLite file
 ```
 DATABASE_URL=postgresql://user:password@localhost/vehicle_detection
 ```
+
+## Frontend setup
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The dev server proxies `/api` to `http://127.0.0.1:8000` (see
+`vite.config.ts`), so it expects the backend already running on that
+port. Open the printed local URL (typically `http://127.0.0.1:5173`).
 
 ## API
 
@@ -81,3 +95,13 @@ All endpoints are under `/api/detection`. Interactive docs at `/docs`.
   their own) because they aren't safe for concurrent inference from
   multiple threads, which this API's threadpooled video processing
   can trigger.
+- **Video output requires `ffmpeg` on `PATH`.** The `opencv-python`
+  wheel installed by `requirements.txt` has no working H.264 encoder
+  (no `libx264`, and its hardware-encoder fallback needs a device that
+  usually doesn't exist), so `VideoProcessor` writes frames with
+  OpenCV's MPEG-4 codec and then shells out to `ffmpeg` to transcode
+  to H.264 — required for the output to play in any browser `<video>`
+  element (MPEG-4 Part 2 is not a supported browser codec). If
+  `ffmpeg` isn't installed, processing still succeeds but the returned
+  file falls back to the non-H.264 original, which downloads fine but
+  won't play inline in the frontend.
