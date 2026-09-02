@@ -18,7 +18,10 @@ export function PlateDetectionPanel() {
     setFile(next);
     setResult(null);
     setError(null);
-    setPreviewUrl(next ? URL.createObjectURL(next) : null);
+    setPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return next ? URL.createObjectURL(next) : null;
+    });
   }
 
   async function handleSubmit() {

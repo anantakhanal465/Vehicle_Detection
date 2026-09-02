@@ -1,4 +1,5 @@
 import uuid
+from datetime import timezone
 from pathlib import Path
 from typing import Literal
 
@@ -9,6 +10,7 @@ from starlette.concurrency import run_in_threadpool
 import cv2
 import numpy as np
 
+from app.config import settings
 from app.database import get_db_session
 from app.models import DetectionRecord
 from app.schemas.detection import DetectionResponse
@@ -25,10 +27,6 @@ router = APIRouter(
 detector = VehicleDetector()
 video_processor = VideoProcessor()
 plate_recognizer = PlateRecognizer()
-
-# Fraction of a plate box's area that must fall inside a vehicle box
-# for the plate to be attributed to that vehicle
-PLATE_MATCH_THRESHOLD = 0.5
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 UPLOAD_DIR = BACKEND_DIR / "uploads"
@@ -67,7 +65,11 @@ def _match_plate_to_vehicle(plate_box, vehicles):
             best_overlap = overlap_ratio
             best_vehicle = vehicle
 
-    return best_vehicle if best_overlap >= PLATE_MATCH_THRESHOLD else None
+    return (
+        best_vehicle
+        if best_overlap >= settings.plate_match_threshold
+        else None
+    )
 
 
 @router.post("/image", response_model=DetectionResponse)
@@ -94,8 +96,11 @@ async def detect_image(
             detail="Invalid image file"
         )
 
-    # Run YOLO
-    detections = detector.detect(
+    # Run YOLO off the event loop — this can take a second or more, and
+    # the loop would otherwise be blocked for it (including for unrelated
+    # requests like GET /health)
+    detections = await run_in_threadpool(
+        detector.detect,
         image,
         vehicle_type=vehicle_type
     )
@@ -128,8 +133,12 @@ async def detect_plate(file: UploadFile = File(...)):
             detail="Invalid image file"
         )
 
-    vehicles = detector.detect(image, vehicle_type="all")
-    plates = plate_recognizer.read_plates(image)
+    # Off the event loop: two YOLO passes plus EasyOCR per plate can take
+    # several seconds, during which the loop would otherwise be blocked
+    vehicles = await run_in_threadpool(
+        detector.detect, image, vehicle_type="all"
+    )
+    plates = await run_in_threadpool(plate_recognizer.read_plates, image)
 
     for vehicle in vehicles:
         vehicle["license_plate"] = None
@@ -256,7 +265,13 @@ async def get_history(limit: int = 20):
         return [
             {
                 "id": record.id,
-                "created_at": record.created_at.isoformat(),
+                # created_at is always written as UTC (see
+                # DetectionRecord.created_at's default), but SQLite drops
+                # tzinfo on round-trip — reattach it so the frontend's
+                # `new Date(...)` doesn't misparse this as local time
+                "created_at": record.created_at.replace(
+                    tzinfo=timezone.utc
+                ).isoformat(),
                 "source_type": record.source_type,
                 "vehicle_type": record.vehicle_type,
                 "detections": record.detections,

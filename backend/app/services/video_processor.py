@@ -1,5 +1,7 @@
+import logging
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 
 import cv2
@@ -9,6 +11,8 @@ from PIL import Image, ImageDraw, ImageFont
 from ultralytics import YOLO
 
 from app.services.constants import VEHICLE_CLASSES
+
+logger = logging.getLogger(__name__)
 
 # cv2.putText's built-in font can't render non-Latin scripts (it silently
 # substitutes '?'), which breaks Devanagari plate-text overlays. Render
@@ -26,8 +30,20 @@ class VideoProcessor:
     def __init__(self, model_path="yolo11n.pt"):
         self.model = YOLO(model_path)
         self._font = ImageFont.truetype(str(FONT_PATH), 22)
+        # This instance is shared across requests and process() runs on a
+        # threadpool worker per request. persist=True keeps ByteTrack state
+        # on self.model across the whole video, so two videos processed
+        # concurrently could interleave frames and corrupt each other's
+        # tracker state even if each individual .track() call were
+        # independently thread-safe — the lock has to span the entire call,
+        # not just each frame.
+        self._lock = threading.Lock()
 
-    def process(
+    def process(self, *args, **kwargs):
+        with self._lock:
+            return self._process_locked(*args, **kwargs)
+
+    def _process_locked(
         self,
         input_path: str,
         output_path: str,
@@ -260,10 +276,20 @@ class VideoProcessor:
                 capture_output=True
             )
             return True
-        except (FileNotFoundError, subprocess.CalledProcessError):
-            # ffmpeg missing or transcode failed — caller falls back to
-            # the raw mp4v file (downloadable/playable outside browsers,
-            # just not inline in a <video> element)
+        except FileNotFoundError:
+            logger.warning(
+                "ffmpeg not found on PATH — video output will be raw "
+                "MPEG-4, downloadable but not playable inline in a "
+                "browser <video> element. Install ffmpeg to fix this."
+            )
+            return False
+        except subprocess.CalledProcessError as exc:
+            logger.warning(
+                "ffmpeg transcode to H.264 failed (exit %s), falling "
+                "back to raw MPEG-4 output: %s",
+                exc.returncode,
+                exc.stderr.decode(errors="replace").strip()[-500:]
+            )
             return False
 
     def _maybe_read_plate(

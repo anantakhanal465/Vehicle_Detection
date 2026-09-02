@@ -1,3 +1,5 @@
+import threading
+
 from ultralytics import YOLO
 
 from app.services.constants import VEHICLE_CLASSES
@@ -9,10 +11,16 @@ class VehicleDetector:
 
     def __init__(self, model_path="yolo11n.pt"):
         self.model = YOLO(model_path)
+        # This instance is shared across requests; Ultralytics YOLO models
+        # aren't guaranteed safe for concurrent inference from multiple
+        # threads (e.g. a threadpooled video request overlapping a
+        # synchronous image request), so serialize access to it.
+        self._lock = threading.Lock()
 
     def detect(self, image, vehicle_type="all"):
 
-        results = self.model(image)
+        with self._lock:
+            results = self.model(image)
 
         detections = []
 

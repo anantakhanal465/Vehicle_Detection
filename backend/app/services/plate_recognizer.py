@@ -1,3 +1,5 @@
+import threading
+
 import cv2
 import easyocr
 
@@ -28,8 +30,17 @@ class PlateRecognizer:
         # 'ne' reads Devanagari-script plates, 'en' reads the newer
         # embossed Latin-character plates used on private vehicles in Nepal
         self.reader = easyocr.Reader(list(languages), gpu=False)
+        # This instance is shared across requests (the synchronous /plate
+        # endpoint and threadpooled video processing can both call it at
+        # once); neither the YOLO models nor the EasyOCR reader are
+        # guaranteed safe for concurrent inference from multiple threads.
+        self._lock = threading.Lock()
 
     def read_plates(self, image):
+        with self._lock:
+            return self._read_plates_locked(image)
+
+    def _read_plates_locked(self, image):
         candidates = []
 
         for model in self.models:
