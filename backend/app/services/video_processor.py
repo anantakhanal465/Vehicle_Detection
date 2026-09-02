@@ -2,15 +2,12 @@ import cv2
 
 from ultralytics import YOLO
 
+from app.services.constants import VEHICLE_CLASSES
+
 
 class VideoProcessor:
 
-    VEHICLE_CLASSES = {
-        2: "car",
-        3: "motorcycle",
-        5: "bus",
-        7: "truck"
-    }
+    VEHICLE_CLASSES = VEHICLE_CLASSES
 
     def __init__(self, model_path="yolo11n.pt"):
         self.model = YOLO(model_path)

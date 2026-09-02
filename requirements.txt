@@ -3,6 +3,7 @@
 # ==========================================
 
 ultralytics
+lap
 opencv-python
 numpy
 Pillow
