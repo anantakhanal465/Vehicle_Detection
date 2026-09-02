@@ -22,6 +22,9 @@ env/
 # Ultralytics run outputs
 runs/
 
+# Training datasets (large; re-downloadable via scripts/finetune_plate_detector.py)
+backend/datasets/
+
 # Service-generated / uploaded media
 backend/uploads/
 backend/results/*.mp4

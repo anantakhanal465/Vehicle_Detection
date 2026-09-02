@@ -9,7 +9,7 @@ plates.
 
 - **YOLO11** (`ultralytics`) for vehicle detection (car/motorcycle/bus/truck)
 - **ByteTrack** for multi-object tracking across video frames
-- **YOLOv8 license-plate detector** ([Koushim/yolov8-license-plate-detection](https://huggingface.co/Koushim/yolov8-license-plate-detection), MIT) for plate localization
+- **YOLOv8 license-plate detector**, as an ensemble of two models (see below) — the base one is [Koushim/yolov8-license-plate-detection](https://huggingface.co/Koushim/yolov8-license-plate-detection) (MIT)
 - **EasyOCR** (`ne` + `en`) for reading plate text
 - **FastAPI** + **SQLAlchemy** (SQLite by default, swappable to Postgres)
 - **ffmpeg** (system binary) to transcode processed video output to H.264 — see note below
@@ -30,15 +30,25 @@ cd backend
 uvicorn app.main:app --reload
 ```
 
-`yolo11n.pt` (vehicle detector) and `license_plate_detector.pt` (plate
-detector) are not committed to the repo — the vehicle model
-auto-downloads via `ultralytics` on first run; the plate model needs
-to be fetched manually:
+`yolo11n.pt` (vehicle detector) and the plate-detector weights are not
+committed to the repo — the vehicle model auto-downloads via
+`ultralytics` on first run. `PlateRecognizer` loads **two** plate
+models and merges their detections (see "Plate detector ensemble"
+below); both need to be fetched manually:
 
 ```bash
 curl -sL -o backend/license_plate_detector.pt \
   "https://huggingface.co/Koushim/yolov8-license-plate-detection/resolve/main/best.pt"
 ```
+
+The second model, `license_plate_detector_nepal.pt`, is a fine-tune of
+the first on Nepali plates — it isn't published anywhere, so regenerate
+it with `backend/scripts/finetune_plate_detector.py` (see that file's
+docstring for the dataset setup; takes ~35-45 min on CPU) and copy its
+output weights to `backend/license_plate_detector_nepal.pt`. Without
+this second file, `PlateRecognizer`'s `YOLO(...)` load will fail — either
+run the fine-tune or edit `DEFAULT_MODEL_PATHS` in
+`app/services/plate_recognizer.py` down to just the first model.
 
 By default, detection history is stored in a local SQLite file
 (`backend/detection_history.db`). To use Postgres instead, set
@@ -72,6 +82,37 @@ All endpoints are under `/api/detection`. Interactive docs at `/docs`.
 | `/video/{filename}` | GET | Download a processed video by filename. |
 | `/history` | GET | Recent detection records (`limit` query param, default 20). |
 | `/health` | GET | Health check. |
+
+## Plate detector ensemble
+
+`PlateRecognizer` runs **both** plate models on every image and merges
+their detections with IoU-based NMS (overlapping boxes from each model
+collapse into one, keeping the higher-confidence box; non-overlapping
+boxes from either model are both kept). This wasn't the original plan —
+here's why it ended up this way, since the reasoning matters if you're
+tuning this further:
+
+1. A full fine-tune of the base model on ~8,000 Nepali plate photos
+   (20 epochs, default LR, nothing frozen) reached mAP50 0.98 on its own
+   held-out validation split — but that split came from the same narrow
+   domain as training (close-range phone photos, plate filling 20-40%
+   of frame). Tested against real aerial traffic footage instead, it
+   fixated on a background storefront sign as a false positive on
+   *every single frame* — it had learned "red rectangle = plate" from a
+   domain where that heuristic always held, and had no counterexamples.
+2. A much gentler fine-tune (3 epochs, low LR, frozen backbone —
+   `scripts/finetune_plate_detector.py`) avoided that regression. But
+   tested against the same footage, it wasn't a strict improvement over
+   the original either — it reliably found different real plates than
+   the original does, missing at least one the original always caught.
+3. Rather than pick a winner, both run and their results get merged.
+   Verified against real footage: this catches more real plates than
+   either model alone, with no false positives observed in testing.
+
+This isn't rigorously validated against a large labeled test set —
+just checked by hand against several real frames from
+`backend/videos/nepal_test.mp4`. Treat it as a reasonable default, not
+a proven-optimal one.
 
 ## Notes & known limitations
 
