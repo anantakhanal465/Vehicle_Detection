@@ -72,6 +72,12 @@ def _match_plate_to_vehicle(plate_box, vehicles):
     )
 
 
+def _save_detection_record(**fields):
+    with get_db_session() as db:
+        db.add(DetectionRecord(**fields))
+        db.commit()
+
+
 @router.post("/image", response_model=DetectionResponse)
 async def detect_image(
     vehicle_type: Literal[
@@ -105,13 +111,11 @@ async def detect_image(
         vehicle_type=vehicle_type
     )
 
-    with get_db_session() as db:
-        db.add(DetectionRecord(
-            source_type="image",
-            vehicle_type=vehicle_type,
-            detections=detections
-        ))
-        db.commit()
+    _save_detection_record(
+        source_type="image",
+        vehicle_type=vehicle_type,
+        detections=detections
+    )
 
     return {
         "success": True,
@@ -167,13 +171,11 @@ async def detect_plate(file: UploadFile = File(...)):
         else:
             unmatched_plates.append(plate)
 
-    with get_db_session() as db:
-        db.add(DetectionRecord(
-            source_type="plate",
-            vehicle_type="all",
-            detections=vehicles
-        ))
-        db.commit()
+    _save_detection_record(
+        source_type="plate",
+        vehicle_type="all",
+        detections=vehicles
+    )
 
     return {
         "success": True,
@@ -231,16 +233,14 @@ async def detect_video(
     download_url = f"/api/detection/video/{output_path.name}"
     plates = result.get("plates", {})
 
-    with get_db_session() as db:
-        db.add(DetectionRecord(
-            source_type="video",
-            vehicle_type=vehicle_type,
-            detections=plates or None,
-            frames_processed=result["frames_processed"],
-            unique_vehicles=result["unique_vehicles"],
-            download_url=download_url
-        ))
-        db.commit()
+    _save_detection_record(
+        source_type="video",
+        vehicle_type=vehicle_type,
+        detections=plates or None,
+        frames_processed=result["frames_processed"],
+        unique_vehicles=result["unique_vehicles"],
+        download_url=download_url
+    )
 
     return {
         "success": True,
