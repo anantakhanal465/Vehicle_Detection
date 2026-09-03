@@ -114,12 +114,18 @@ tuning this further:
    the original does, missing at least one the original always caught.
 3. Rather than pick a winner, both run and their results get merged.
    Verified against real footage: this catches more real plates than
-   either model alone, with no false positives observed in testing.
+   either model alone.
 
 This isn't rigorously validated against a large labeled test set —
-just checked by hand against several real frames from
-`backend/videos/nepal_test.mp4`. Treat it as a reasonable default, not
-a proven-optimal one.
+checked by hand against several real frames from
+`backend/videos/nepal_test.mp4`, plus (later) 10 real multi-vehicle
+Nepal traffic photos from Wikimedia Commons
+(`backend/test_images/nepal_traffic/`, gitignored). That second, wider
+test is where the false-positive problem below was actually found —
+"no false positives observed" from the narrower first round of testing
+didn't hold up. Treat all of this as a reasonable default, not a
+proven-optimal one, and keep testing against new real footage before
+trusting it further.
 
 ## Plate text reading: character classifier, with EasyOCR as fallback
 
@@ -136,14 +142,15 @@ font Nepali plates actually use, so no amount of upscaling/CLAHE
 tuning fixed it (that tuning history is still below, since it's still
 relevant to the EasyOCR fallback path).
 
-The classifier covers 63 classes — the Devanagari digits and
+The classifier covers 64 classes — the Devanagari digits and
 province/vehicle-category syllables used on government-style plates,
-plus the digits/letters and a plate logo/watermark class used on
-embossed Latin-script plates (the newer style used on private
-vehicles) — trained on two merged Kaggle datasets (see the training
-script's docstring for exact provenance, licenses, and how to
-reconstruct the merge). 99.4% validation accuracy on held-out
-characters from both.
+digits/letters and a plate logo/watermark class used on embossed
+Latin-script plates (the newer style used on private vehicles), and a
+`background` class (see "Rejecting false-positive plate detections"
+below) — trained on two merged Kaggle datasets plus locally-harvested
+negative examples (see the training script's docstring for exact
+provenance, licenses, and how to reconstruct the merge). ~99.3%
+validation accuracy on held-out characters across all of it.
 
 If character segmentation finds fewer than 2 characters, or mean
 per-character confidence comes back below 0.5, `PlateRecognizer` falls
@@ -163,6 +170,55 @@ handed to either OCR path (not before being drawn/returned as the
 plate's bounding box) — tight detection boxes, especially from the
 padded-retry path below, were observed cutting off a character at the
 plate's edge.
+
+## Rejecting false-positive plate detections
+
+Testing against 10 real multi-vehicle Nepal traffic photos (not
+close-up single-plate shots) found the plate *detector* itself
+proposing false-positive boxes on busy scenes: of 5 plate-shaped boxes
+detected across those 10 photos, 4 turned out — on pixel-level
+inspection — to be a van's front grille, a windshield, a motorcycle
+seat, and a piece of fabric, not plates at all. Worse, both OCR paths
+would then confidently produce plausible-looking garbage text from
+these non-plate crops (e.g. `'लु५ ५डि झख३ लु'` from the windshield)
+rather than recognizing there was nothing to read. Neither detection
+confidence nor box aspect ratio reliably separated these false
+positives from the one genuine plate in the same test batch — both
+spanned overlapping ranges.
+
+The fix: the character classifier's `background` class (see above) —
+trained on real false-positive crops and randomly-sampled vehicle-body
+texture, both run through the same segmentation pipeline used at
+inference time so training and inference see the same kind of input.
+When most of a candidate's segmented blobs classify as `background`,
+`PlateRecognizer._read_plates_locked` drops the candidate entirely
+rather than reporting a box with fabricated or empty text. Verified:
+4 of the 5 known false positives (grille, windshield, seat, fabric) are
+now correctly suppressed; the 5th (a motion-blurred taillight streak)
+has no segmentable structure at all (0 blobs), so it falls through to
+the same "detected, unreadable" path as any other low-quality crop —
+this fix only catches false positives where the detector's box has
+enough visual structure for segmentation to produce blobs in the first
+place, not all of them.
+
+**Known tradeoff, found and kept (not silently swept under the rug):**
+the same background classification wrongly triggered on 2 of the 3
+confirmed real plates in that test batch — both very small/blurry or
+under a decorative cover, where classical-CV segmentation produces
+messy, oversized blobs that are genuinely hard to distinguish from
+background at the pixel level. Both of those plates were already
+unreadable before this change too (EasyOCR independently returns
+nothing on them as well) — so no *readable* text is lost, but the box
+itself now disappears entirely instead of appearing as "detected,
+unreadable." Retraining the background class on properly-scoped
+segmented blobs (rather than raw random patches) was tried first and
+didn't change this outcome — it's a real limit of Otsu-threshold
+segmentation on hard plates, not a training-data artifact. If this
+tradeoff turns out to matter in practice, the next thing to try is
+probably retraining the plate *detector* itself with these false
+positives as hard negatives (there's prior art for this in
+`backend/datasets/nepal_hard_negatives/` from an earlier, abandoned
+attempt) rather than continuing to patch the classifier.
 
 If `backend/char_classifier.pt` / `char_classifier_labels.json` aren't
 present, `PlateRecognizer` logs a warning and falls back to

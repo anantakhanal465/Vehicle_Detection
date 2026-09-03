@@ -8,7 +8,7 @@ preprocessing (upscaling, CLAHE, etc. were all tried and don't help,
 since the problem is a font/domain mismatch, not resolution). This
 trains a classifier on real plate character crops instead.
 
-Two datasets, merged into one 63-class problem:
+Three sources, merged into one 64-class problem:
 
 1. Kaggle "Nepali Number Plate Characters Dataset"
    (inspiring-lab/nepali-number-plate-characters-dataset, CC BY-NC 4.0 --
@@ -37,11 +37,26 @@ Two datasets, merged into one 63-class problem:
    garbage at 0.76 confidence (above the fallback threshold) before this
    was added.
 
-Both are merged into backend/datasets/combined_char_ocr/ (one class-name
-subfolder per character, images symlinked in) before training:
+3. A "background" class of generic vehicle-body texture (grilles,
+   windshields, seats, fabric, etc.) -- NOT downloaded, harvested
+   locally from real photos via harvest_char_negatives.py. Without
+   this, the classifier has no way to say "this segmented blob isn't a
+   character at all" -- verified this was a real problem: testing
+   PlateRecognizer against real multi-vehicle Nepal traffic photos
+   showed the plate *detector* proposing false-positive boxes on busy
+   scenes (a van grille, a windshield, a motorcycle seat, fabric), and
+   the classifier confidently reading plausible-looking Devanagari
+   garbage from every one of them instead of recognizing they weren't
+   plates. See harvest_char_negatives.py's docstring for the harvesting
+   approach; it writes to backend/datasets/char_negatives/.
+
+All three are merged into backend/datasets/combined_char_ocr/ (one
+class-name subfolder per character, images symlinked in) before
+training:
 
     SRC_DEV=backend/datasets/nepali_char_ocr/character_ocr
     SRC_LAT=backend/datasets/embossed_chars/digits_and_numbers_dataset
+    SRC_NEG=backend/datasets/char_negatives
     DST=backend/datasets/combined_char_ocr
     for d in "$SRC_DEV"/*/; do
       cls=$(basename "$d"); mkdir -p "$DST/$cls"
@@ -53,6 +68,8 @@ subfolder per character, images symlinked in) before training:
         for f in "$d"*; do ln -s "$f" "$DST/$cls/${split}_$(basename "$f")"; done
       done
     done
+    mkdir -p "$DST/background"
+    for f in "$SRC_NEG"/*; do ln -s "$f" "$DST/background/$(basename "$f")"; done
 
 Usage:
     python backend/scripts/train_char_classifier.py

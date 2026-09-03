@@ -32,5 +32,8 @@ backend/results/*.mp4
 # Large sample/input videos
 backend/videos/*.mp4
 
+# Downloaded test images
+backend/test_images/
+
 # OS
 .DS_Store

@@ -28,6 +28,18 @@ CROP_MARGIN_FRAC = 0.12
 # dropped from the assembled text.
 NON_TEXT_LABELS = {"Nepali Flag"}
 
+# Also not a character -- generic vehicle-body texture (grilles,
+# windshields, seats, fabric, etc.) that the plate *detector* sometimes
+# mistakes for a plate on busy traffic scenes. Trained on real
+# false-positive crops (see scripts/train_char_classifier.py) so the
+# classifier has somewhere to put this instead of confidently forcing it
+# into a real character class -- verified this was a real failure mode:
+# false-positive plate detections were read as plausible-looking (0.5-0.8
+# confidence) Devanagari garbage before this class existed. If most of a
+# candidate's segmented blobs land here, read_plate_text reports it as
+# background rather than assembling nonsense text from it.
+BACKGROUND_LABEL = "background"
+
 
 class CharClassifierCNN(nn.Module):
     """34-class CNN over 32x32 grayscale crops of individual Nepali plate
@@ -161,15 +173,23 @@ class CharClassifier:
 
     def read_plate_text(self, plate_crop):
         """Segments plate_crop into characters and classifies each.
-        Returns (text, mean_confidence), or (None, None) if fewer than
-        2 characters were segmented -- too little signal to trust over
-        the EasyOCR fallback.
+
+        Returns (text, mean_confidence, is_background):
+        - is_background=True means most segmented blobs were classified
+          as generic vehicle texture rather than characters -- this
+          candidate is probably not a real plate at all, not just a
+          hard-to-read one. Callers should treat this as a rejection
+          signal, not just fall back to EasyOCR on it (EasyOCR reads
+          plausible-looking garbage on these too).
+        - (None, None, False) means too little was segmented to have an
+          opinion either way -- too little signal to trust over EasyOCR,
+          but not confidently background either.
         """
         rows = segment_characters(plate_crop)
-        char_count = sum(len(row) for row in rows)
+        total_blobs = sum(len(row) for row in rows)
 
-        if char_count < 2:
-            return None, None
+        if total_blobs < 2:
+            return None, None, False
 
         height, width = plate_crop.shape[:2]
         crops = []
@@ -189,6 +209,11 @@ class CharClassifier:
 
         labels, confidences = self._classify_batch(crops)
 
+        background_count = sum(1 for label in labels if label == BACKGROUND_LABEL)
+
+        if background_count >= total_blobs - background_count:
+            return None, None, True
+
         rows_text = []
         text_confidences = []
         idx = 0
@@ -199,7 +224,7 @@ class CharClassifier:
             for label, confidence in zip(
                 labels[idx:idx + length], confidences[idx:idx + length]
             ):
-                if label in NON_TEXT_LABELS:
+                if label in NON_TEXT_LABELS or label == BACKGROUND_LABEL:
                     continue
 
                 row_chars.append(label)
@@ -209,12 +234,12 @@ class CharClassifier:
             idx += length
 
         if not text_confidences:
-            return None, None
+            return None, None, False
 
         text = " ".join(rows_text)
         mean_confidence = round(float(np.mean(text_confidences)), 4)
 
-        return text, mean_confidence
+        return text, mean_confidence, False
 
     def _classify_batch(self, crops):
         tensors = [self._preprocess(crop) for crop in crops]
