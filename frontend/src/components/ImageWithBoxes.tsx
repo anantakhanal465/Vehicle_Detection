@@ -20,7 +20,7 @@ export function ImageWithBoxes({ src, boxes }: ImageWithBoxesProps) {
   );
 
   return (
-    <div className="relative inline-block max-w-full leading-none">
+    <div className="relative inline-block max-w-full self-start leading-none">
       <img
         src={src}
         alt="Detection result"
