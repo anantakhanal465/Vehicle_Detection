@@ -1,9 +1,14 @@
+import logging
 import threading
 
 import cv2
 import easyocr
 
 from ultralytics import YOLO
+
+from app.services.char_classifier import CharClassifier
+
+logger = logging.getLogger(__name__)
 
 # Generic international model, plus a version fine-tuned on Nepali plates.
 # The two catch different real plates in testing (the fine-tune doesn't
@@ -18,6 +23,14 @@ DEFAULT_MODEL_PATHS = (
 # the higher-confidence one) once their overlap crosses this IoU threshold
 NMS_IOU_THRESHOLD = 0.5
 
+# Below this mean per-character confidence, the character-classifier
+# reading isn't trusted and EasyOCR's reading is used instead. Chosen
+# from the classifier's own ~0.95+ validation accuracy on isolated
+# characters -- a low mean here usually means segmentation split a
+# character wrong (e.g. a Latin-embossed plate the classifier was never
+# trained on), not that the plate is genuinely hard to read.
+CHAR_CLASSIFIER_CONFIDENCE_THRESHOLD = 0.5
+
 
 class PlateRecognizer:
 
@@ -30,6 +43,22 @@ class PlateRecognizer:
         # 'ne' reads Devanagari-script plates, 'en' reads the newer
         # embossed Latin-character plates used on private vehicles in Nepal
         self.reader = easyocr.Reader(list(languages), gpu=False)
+
+        # Trained on real Nepali plate character crops (see
+        # scripts/train_char_classifier.py) -- reads Devanagari plates far
+        # more reliably than EasyOCR's generic 'ne' model, which is trained
+        # on printed/handwritten documents rather than the embossed stencil
+        # font plates actually use. Optional: falls back to EasyOCR-only if
+        # the model weights haven't been trained/placed yet.
+        try:
+            self.char_classifier = CharClassifier()
+        except (FileNotFoundError, OSError) as exc:
+            logger.warning(
+                "Character classifier unavailable (%s); falling back to "
+                "EasyOCR only. Run scripts/train_char_classifier.py to "
+                "enable it.", exc
+            )
+            self.char_classifier = None
         # This instance is shared across requests (the synchronous /plate
         # endpoint and threadpooled video processing can both call it at
         # once); neither the YOLO models nor the EasyOCR reader are
@@ -55,7 +84,15 @@ class PlateRecognizer:
             if plate_crop.size == 0:
                 continue
 
-            text, ocr_confidence = self._read_text(plate_crop)
+            # Detection boxes are sometimes a little tight, especially
+            # from the padded-retry path -- cropping exactly to the box
+            # can cut off part of a character on the plate's edge (a real
+            # crop went from misreading "०२ २७" to the correct "०२३ २७६"
+            # once the missing edge pixels were included). Read text from
+            # a slightly wider crop than what's reported/drawn as the
+            # plate's bounding box.
+            ocr_crop = self._expand_crop(image, (x1, y1, x2, y2))
+            text, ocr_confidence = self._read_text(ocr_crop)
 
             plates.append({
                 "text": text,
@@ -116,6 +153,18 @@ class PlateRecognizer:
         return candidates
 
     @staticmethod
+    def _expand_crop(image, box, margin_frac=0.2):
+        x1, y1, x2, y2 = box
+        height, width = image.shape[:2]
+        margin_x = int((x2 - x1) * margin_frac)
+        margin_y = int((y2 - y1) * margin_frac)
+
+        return image[
+            max(0, y1 - margin_y):min(height, y2 + margin_y),
+            max(0, x1 - margin_x):min(width, x2 + margin_x)
+        ]
+
+    @staticmethod
     def _iou(box_a, box_b):
         ax1, ay1, ax2, ay2 = box_a
         bx1, by1, bx2, by2 = box_b
@@ -152,6 +201,18 @@ class PlateRecognizer:
         return kept
 
     def _read_text(self, plate_crop):
+        if self.char_classifier is not None:
+            text, confidence = self.char_classifier.read_plate_text(plate_crop)
+
+            if (
+                text is not None
+                and confidence >= CHAR_CLASSIFIER_CONFIDENCE_THRESHOLD
+            ):
+                return text, confidence
+
+        return self._read_text_easyocr(plate_crop)
+
+    def _read_text_easyocr(self, plate_crop):
         # Plates are often small in wide traffic shots; upscale and boost
         # contrast so EasyOCR has enough resolved detail to work with.
         #

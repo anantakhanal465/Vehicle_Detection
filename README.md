@@ -50,6 +50,13 @@ this second file, `PlateRecognizer`'s `YOLO(...)` load will fail — either
 run the fine-tune or edit `DEFAULT_MODEL_PATHS` in
 `app/services/plate_recognizer.py` down to just the first model.
 
+`PlateRecognizer` also loads `backend/char_classifier.pt` +
+`char_classifier_labels.json` for reading plate text (see "Plate text
+reading" below) — also not committed. Without them it logs a warning
+and falls back to EasyOCR-only automatically, so this one's optional;
+run `backend/scripts/train_char_classifier.py` (see that file's
+docstring for dataset setup; a few minutes on CPU) to enable it.
+
 By default, detection history is stored in a local SQLite file
 (`backend/detection_history.db`). To use Postgres instead, set
 `DATABASE_URL` (e.g. in a `.env` file in `backend/`):
@@ -114,21 +121,67 @@ just checked by hand against several real frames from
 `backend/videos/nepal_test.mp4`. Treat it as a reasonable default, not
 a proven-optimal one.
 
+## Plate text reading: character classifier, with EasyOCR as fallback
+
+Plate text is read by segmenting each detected plate into individual
+characters (classical CV — Otsu threshold + connected components,
+since Nepali plates are high-contrast by design) and classifying each
+one with a small CNN trained specifically on real Nepali plate
+characters (`app/services/char_classifier.py`,
+`scripts/train_char_classifier.py`). This replaced an earlier
+EasyOCR-only approach that read garbage on real plates regardless of
+preprocessing — EasyOCR's generic `ne` model is trained on
+printed/handwritten Nepali documents, not the blocky embossed stencil
+font Nepali plates actually use, so no amount of upscaling/CLAHE
+tuning fixed it (that tuning history is still below, since it's still
+relevant to the EasyOCR fallback path).
+
+The classifier covers 63 classes — the Devanagari digits and
+province/vehicle-category syllables used on government-style plates,
+plus the digits/letters and a plate logo/watermark class used on
+embossed Latin-script plates (the newer style used on private
+vehicles) — trained on two merged Kaggle datasets (see the training
+script's docstring for exact provenance, licenses, and how to
+reconstruct the merge). 99.4% validation accuracy on held-out
+characters from both.
+
+If character segmentation finds fewer than 2 characters, or mean
+per-character confidence comes back below 0.5, `PlateRecognizer` falls
+back to the original EasyOCR path instead of trusting the classifier
+— this matters because a 34-class Devanagari-only version of this
+classifier was initially shipped and would *confidently* misread
+Latin-script plates as garbage Devanagari (verified: 0.76 confidence on
+a wrong reading) rather than recognizing it didn't know the script.
+Adding the Latin/digit classes fixed real embossed-plate characters
+(100% correct, 100% confidence on held-out samples) but a synthetic
+test with a generic (non-embossed) font still partially misfires — the
+confidence fallback exists precisely so an unfamiliar font degrades to
+EasyOCR rather than producing confidently wrong text.
+
+Both plate-model detection boxes are widened by a margin before being
+handed to either OCR path (not before being drawn/returned as the
+plate's bounding box) — tight detection boxes, especially from the
+padded-retry path below, were observed cutting off a character at the
+plate's edge.
+
+If `backend/char_classifier.pt` / `char_classifier_labels.json` aren't
+present, `PlateRecognizer` logs a warning and falls back to
+EasyOCR-only automatically — run
+`scripts/train_char_classifier.py` (a few minutes on CPU) to enable
+the classifier.
+
 ## Notes & known limitations
 
 - **OCR accuracy depends heavily on source resolution.** Plates in
   wide traffic-camera-style footage are often only tens of pixels
-  wide — below what any OCR engine can reliably read, even with the
-  upscaling + contrast enhancement this project applies. Real ANPR
-  deployments use dedicated close-range cameras for this reason. (A
-  CLAHE-removal tweak was tried and reverted after broader testing
-  showed it wasn't actually an improvement — see the git history
-  around `plate_recognizer.py` if picking this back up.) The natural
-  next step, not yet attempted, is a Nepali-specific OCR model instead
-  of generic EasyOCR — a labeled Devanagari plate-character dataset
-  (`Nepali Number Plate Characters Dataset`, Kaggle, 26,537 images)
-  exists for this but training/integrating one is a substantial
-  separate project.
+  wide — below what any OCR engine (the character classifier included)
+  can reliably read. Real ANPR deployments use dedicated close-range
+  cameras for this reason. The notes below are about the EasyOCR
+  fallback path specifically (the character classifier above handles
+  clear/close-range plates well): a CLAHE-removal tweak was tried and
+  reverted after broader testing showed it wasn't actually an
+  improvement — see the git history around `plate_recognizer.py` if
+  picking this back up.
 - **Video plate reading is throttled, not run every frame.** EasyOCR
   takes roughly 1-2 seconds per plate crop on CPU, so `read_plates=true`
   on video retries each tracked vehicle at most every 20 frames, stops
