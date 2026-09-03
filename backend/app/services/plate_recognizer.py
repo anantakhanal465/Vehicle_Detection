@@ -41,18 +41,10 @@ class PlateRecognizer:
             return self._read_plates_locked(image)
 
     def _read_plates_locked(self, image):
-        candidates = []
+        candidates = self._detect_candidates(image)
 
-        for model in self.models:
-            results = model(image, verbose=False)
-
-            for result in results:
-                for box in result.boxes:
-                    x1, y1, x2, y2 = map(int, box.xyxy[0])
-                    candidates.append({
-                        "confidence": float(box.conf[0]),
-                        "box": (x1, y1, x2, y2)
-                    })
+        if not candidates:
+            candidates = self._detect_candidates_padded(image)
 
         plates = []
 
@@ -78,6 +70,50 @@ class PlateRecognizer:
             })
 
         return plates
+
+    def _detect_candidates(self, image):
+        candidates = []
+
+        for model in self.models:
+            results = model(image, verbose=False)
+
+            for result in results:
+                for box in result.boxes:
+                    x1, y1, x2, y2 = map(int, box.xyxy[0])
+                    candidates.append({
+                        "confidence": float(box.conf[0]),
+                        "box": (x1, y1, x2, y2)
+                    })
+
+        return candidates
+
+    def _detect_candidates_padded(self, image):
+        # Both models were trained on scenes where a plate is a small
+        # region surrounded by other context (vehicle body, road) and rely
+        # on that surrounding context to localize it. A close-up photo
+        # where the plate fills nearly the whole frame has no context
+        # pixels, and confidence collapses to near-zero even though the
+        # plate itself is large and clear (verified: a real close-up plate
+        # crop went from ~0.01 confidence unpadded to ~0.55 padded). Retry
+        # once with a padded border before giving up.
+        height, width = image.shape[:2]
+        pad = int(max(height, width) * 0.5)
+        padded = cv2.copyMakeBorder(
+            image, pad, pad, pad, pad, cv2.BORDER_REPLICATE
+        )
+
+        candidates = self._detect_candidates(padded)
+
+        for candidate in candidates:
+            x1, y1, x2, y2 = candidate["box"]
+            candidate["box"] = (
+                max(0, x1 - pad),
+                max(0, y1 - pad),
+                min(width, x2 - pad),
+                min(height, y2 - pad)
+            )
+
+        return candidates
 
     @staticmethod
     def _iou(box_a, box_b):
