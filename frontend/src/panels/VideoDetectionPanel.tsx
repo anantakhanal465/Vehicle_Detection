@@ -87,14 +87,6 @@ export function VideoDetectionPanel() {
         </SubmitButton>
       </div>
 
-      <p className="text-sm text-neutral-500 dark:text-neutral-400">
-        Detection + tracking alone takes roughly as long as the video's
-        duration on CPU. With plate reading enabled it takes noticeably
-        longer, since each tracked vehicle is retried periodically until a
-        confident reading is found or a retry cap is hit — expect a minute
-        or more even for short clips.
-      </p>
-
       {error && (
         <p className="rounded-lg bg-red-100 px-4 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
           {error}

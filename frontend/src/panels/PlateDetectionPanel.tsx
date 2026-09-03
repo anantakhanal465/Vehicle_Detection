@@ -89,13 +89,6 @@ export function PlateDetectionPanel() {
         </SubmitButton>
       </div>
 
-      <p className="text-sm text-neutral-500 dark:text-neutral-400">
-        Reads Nepali plates in both Devanagari and embossed Latin script.
-        Accuracy depends heavily on how many pixels the plate itself
-        occupies in the source image — distant traffic-camera shots will
-        often localize the plate correctly but fail to read the text.
-      </p>
-
       {error && (
         <p className="rounded-lg bg-red-100 px-4 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
           {error}
