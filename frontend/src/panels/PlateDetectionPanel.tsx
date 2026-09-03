@@ -68,8 +68,12 @@ export function PlateDetectionPanel() {
     }
   }
 
-  const readablePlates =
+  const matchedReadable =
     result?.vehicles.filter((v) => v.license_plate?.text) ?? [];
+  const unmatchedReadable =
+    result?.unmatched_plates.filter((p) => p.text) ?? [];
+  const readablePlateCount =
+    matchedReadable.length + unmatchedReadable.length;
 
   return (
     <div className="flex flex-col gap-6">
@@ -105,15 +109,19 @@ export function PlateDetectionPanel() {
           {result && (
             <div className="min-w-[240px] flex-1">
               <h3 className="mb-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-                {readablePlates.length} plate
-                {readablePlates.length === 1 ? "" : "s"} read of{" "}
+                {readablePlateCount} plate
+                {readablePlateCount === 1 ? "" : "s"} read of{" "}
                 {result.vehicles.length} vehicle
                 {result.vehicles.length === 1 ? "" : "s"}
+                {result.unmatched_plates.length > 0 &&
+                  ` (+${result.unmatched_plates.length} plate${
+                    result.unmatched_plates.length === 1 ? "" : "s"
+                  } with no matching vehicle)`}
               </h3>
               <ul className="flex flex-col gap-1.5">
                 {result.vehicles.map((v, i) => (
                   <li
-                    key={i}
+                    key={`vehicle-${i}`}
                     className="flex items-center gap-2 rounded-md border border-neutral-200 px-3 py-1.5 text-sm dark:border-neutral-800"
                   >
                     <span
@@ -123,6 +131,23 @@ export function PlateDetectionPanel() {
                     <span className="capitalize">{v.vehicle_type}</span>
                     <span className="ml-auto font-mono text-neutral-700 dark:text-neutral-200">
                       {v.license_plate?.text ?? "—"}
+                    </span>
+                  </li>
+                ))}
+                {result.unmatched_plates.map((p, i) => (
+                  <li
+                    key={`unmatched-${i}`}
+                    className="flex items-center gap-2 rounded-md border border-dashed border-neutral-300 px-3 py-1.5 text-sm dark:border-neutral-700"
+                  >
+                    <span
+                      className="h-2.5 w-2.5 rounded-full"
+                      style={{ backgroundColor: PLATE_COLOR }}
+                    />
+                    <span className="text-neutral-500 dark:text-neutral-400">
+                      Plate (no vehicle detected)
+                    </span>
+                    <span className="ml-auto font-mono text-neutral-700 dark:text-neutral-200">
+                      {p.text ?? "unreadable"}
                     </span>
                   </li>
                 ))}
