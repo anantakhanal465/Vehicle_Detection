@@ -59,4 +59,5 @@ export interface HistoryRecord {
   frames_processed: number | null;
   unique_vehicles: number | null;
   download_url: string | null;
+  image_url: string | null;
 }

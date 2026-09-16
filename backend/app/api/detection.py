@@ -31,9 +31,17 @@ plate_recognizer = PlateRecognizer()
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 UPLOAD_DIR = BACKEND_DIR / "uploads"
 RESULTS_DIR = BACKEND_DIR / "results"
+GALLERY_DIR = BACKEND_DIR / "results" / "gallery"
 
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+GALLERY_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _save_gallery_image(image) -> str:
+    filename = f"{uuid.uuid4().hex}.jpg"
+    cv2.imwrite(str(GALLERY_DIR / filename), image)
+    return f"/api/detection/gallery/{filename}"
 
 ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv"}
 
@@ -114,7 +122,8 @@ async def detect_image(
     _save_detection_record(
         source_type="image",
         vehicle_type=vehicle_type,
-        detections=detections
+        detections=detections,
+        image_url=_save_gallery_image(image)
     )
 
     return {
@@ -174,7 +183,8 @@ async def detect_plate(file: UploadFile = File(...)):
     _save_detection_record(
         source_type="plate",
         vehicle_type="all",
-        detections=vehicles
+        detections=vehicles,
+        image_url=_save_gallery_image(image)
     )
 
     return {
@@ -277,7 +287,8 @@ async def get_history(limit: int = 20):
                 "detections": record.detections,
                 "frames_processed": record.frames_processed,
                 "unique_vehicles": record.unique_vehicles,
-                "download_url": record.download_url
+                "download_url": record.download_url,
+                "image_url": record.image_url
             }
             for record in records
         ]
@@ -300,5 +311,24 @@ async def download_video(filename: str):
         filename=filename,
         # "attachment" (FileResponse's default when filename is set) makes
         # Chrome refuse to play the file inline in a <video> element
+        content_disposition_type="inline"
+    )
+
+
+@router.get("/gallery/{filename}")
+async def download_gallery_image(filename: str):
+    # Reject anything that isn't a bare filename to prevent path traversal
+    if filename != Path(filename).name:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    file_path = GALLERY_DIR / filename
+
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    return FileResponse(
+        path=file_path,
+        media_type="image/jpeg",
+        filename=filename,
         content_disposition_type="inline"
     )

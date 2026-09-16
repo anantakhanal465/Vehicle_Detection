@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { GalleryPanel } from "./panels/GalleryPanel";
 import { HistoryPanel } from "./panels/HistoryPanel";
 import { ImageDetectionPanel } from "./panels/ImageDetectionPanel";
 import { PlateDetectionPanel } from "./panels/PlateDetectionPanel";
@@ -9,6 +10,7 @@ const TABS = [
   { id: "image", label: "Image", panel: ImageDetectionPanel },
   { id: "plate", label: "Plates", panel: PlateDetectionPanel },
   { id: "video", label: "Video", panel: VideoDetectionPanel },
+  { id: "gallery", label: "Gallery", panel: GalleryPanel },
   { id: "history", label: "History", panel: HistoryPanel },
 ] as const;
 
@@ -23,10 +25,6 @@ function App() {
       <header className="border-b border-neutral-200 dark:border-neutral-800">
         <div className="mx-auto max-w-5xl px-6 py-6">
           <h1 className="text-xl font-semibold">Vehicle Detection — Nepal</h1>
-          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-            YOLO vehicle detection, tracking, and license plate recognition
-            tuned for Nepali plates.
-          </p>
         </div>
       </header>
 

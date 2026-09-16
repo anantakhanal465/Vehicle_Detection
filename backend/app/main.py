@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.detection import router as detection_router
-from app.database import Base, engine
+from app.database import Base, engine, ensure_schema
 from app import models  # noqa: F401 (registers models with Base's metadata)
 
 
@@ -13,6 +13,7 @@ app = FastAPI(
 )
 
 Base.metadata.create_all(bind=engine)
+ensure_schema()
 
 # Permissive for local development; restrict to specific origins in production
 app.add_middleware(

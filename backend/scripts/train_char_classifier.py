@@ -8,7 +8,7 @@ preprocessing (upscaling, CLAHE, etc. were all tried and don't help,
 since the problem is a font/domain mismatch, not resolution). This
 trains a classifier on real plate character crops instead.
 
-Three sources, merged into one 64-class problem:
+Four sources, merged into one 87-class problem:
 
 1. Kaggle "Nepali Number Plate Characters Dataset"
    (inspiring-lab/nepali-number-plate-characters-dataset, CC BY-NC 4.0 --
@@ -39,24 +39,51 @@ Three sources, merged into one 64-class problem:
 
 3. A "background" class of generic vehicle-body texture (grilles,
    windshields, seats, fabric, etc.) -- NOT downloaded, harvested
-   locally from real photos via harvest_char_negatives.py. Without
-   this, the classifier has no way to say "this segmented blob isn't a
-   character at all" -- verified this was a real problem: testing
-   PlateRecognizer against real multi-vehicle Nepal traffic photos
-   showed the plate *detector* proposing false-positive boxes on busy
-   scenes (a van grille, a windshield, a motorcycle seat, fabric), and
-   the classifier confidently reading plausible-looking Devanagari
-   garbage from every one of them instead of recognizing they weren't
-   plates. See harvest_char_negatives.py's docstring for the harvesting
-   approach; it writes to backend/datasets/char_negatives/.
+   locally from real photos via harvest_char_negatives.py, then run
+   through segment_characters() itself so the training examples match
+   what the classifier actually sees at inference (whole random patches
+   didn't work as well -- see char_classifier.py's BACKGROUND_LABEL
+   comment). Without this class at all, the classifier has no way to
+   say "this segmented blob isn't a character" -- verified this was a
+   real problem: testing PlateRecognizer against real multi-vehicle
+   Nepal traffic photos showed the plate *detector* proposing false-
+   positive boxes on busy scenes (a van grille, a windshield, a
+   motorcycle seat, fabric), and the classifier confidently reading
+   plausible-looking Devanagari garbage from every one of them instead
+   of recognizing they weren't plates. See harvest_char_negatives.py's
+   docstring for the raw-patch harvesting approach (writes to
+   backend/datasets/char_negatives/); the blob extraction step that
+   turns those into backend/datasets/char_negatives_blobs/ is a few
+   lines of segment_characters() over each patch (see the merge
+   command below).
 
-All three are merged into backend/datasets/combined_char_ocr/ (one
+4. Kaggle "Devanagari Character Dataset" (ashokpant/devanagari-
+   character-dataset, aka NHCD -- Nepali Handwritten Character
+   Dataset, DbCL-1.0). 23 consonant classes not covered by dataset #1
+   (which only has the specific syllables that appear on plates, not
+   the full alphabet) -- ग/gha, ङ/nga, छ/chha, ट/ठ/ड/ढ/ण (retroflex
+   ta/tha/da/dha/na), थ/द/ध/न (dental tha/da/dha/na), फ/pha, भ/bha,
+   र/ra, ल/la, व/va, श/ष/स (sha/ssa/sa), and the conjuncts क्ष/त्र/ज्ञ.
+   205 images each, 28x28. This is handwritten pen-stroke text, not the
+   embossed plate stencil font -- a real domain mismatch, same class of
+   risk as EasyOCR's original problem. Added anyway (there's no
+   plate-photo alternative that covers these), but only for consonants
+   dataset #1 doesn't already have real plate-photo examples for --
+   don't let this dataset touch the 13 consonants (क ख ग च ज झ ञ त प ब
+   म य ह) that already have good real-plate training data, to avoid
+   degrading those with lower-quality handwritten versions.
+
+       kaggle datasets download -d ashokpant/devanagari-character-dataset \\
+           -p backend/datasets/nepali_handwritten --unzip
+
+All four are merged into backend/datasets/combined_char_ocr/ (one
 class-name subfolder per character, images symlinked in) before
 training:
 
     SRC_DEV=backend/datasets/nepali_char_ocr/character_ocr
     SRC_LAT=backend/datasets/embossed_chars/digits_and_numbers_dataset
-    SRC_NEG=backend/datasets/char_negatives
+    SRC_NEG=backend/datasets/char_negatives_blobs
+    SRC_FULL=backend/datasets/nepali_handwritten/nhcd/nhcd/consonants
     DST=backend/datasets/combined_char_ocr
     for d in "$SRC_DEV"/*/; do
       cls=$(basename "$d"); mkdir -p "$DST/$cls"
@@ -70,11 +97,16 @@ training:
     done
     mkdir -p "$DST/background"
     for f in "$SRC_NEG"/*; do ln -s "$f" "$DST/background/$(basename "$f")"; done
+    # SRC_FULL: map each numbered class folder to its Devanagari label via
+    # nepali_handwritten/labels.csv's Consonants section, skip the 13
+    # classes dataset #1 already covers, symlink the other 23 in (see
+    # the class-number-to-label parsing this script's git history shows,
+    # or backend/datasets/nepali_handwritten/labels.csv directly)
 
 Usage:
     python backend/scripts/train_char_classifier.py
 
-Trains for 15 epochs on CPU (~30k images, 32x32 grayscale -- a few
+Trains for 15 epochs on CPU (~35k images, 32x32 grayscale -- a few
 minutes total), then saves weights to
 backend/char_classifier.pt and the label mapping to
 backend/char_classifier_labels.json. Both are required by

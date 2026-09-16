@@ -28,6 +28,7 @@ backend/datasets/
 # Service-generated / uploaded media
 backend/uploads/
 backend/results/*.mp4
+backend/results/gallery/
 
 # Large sample/input videos
 backend/videos/*.mp4
