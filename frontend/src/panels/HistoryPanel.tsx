@@ -172,3 +172,4 @@ function summarize(record: HistoryRecord): string {
 
   return "—";
 }
+ 

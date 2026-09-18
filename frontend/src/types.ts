@@ -61,3 +61,4 @@ export interface HistoryRecord {
   download_url: string | null;
   image_url: string | null;
 }
+ 

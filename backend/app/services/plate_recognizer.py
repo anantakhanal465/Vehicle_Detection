@@ -259,3 +259,4 @@ class PlateRecognizer:
         confidence = round(min(reading[2] for reading in readings), 4)
 
         return text, confidence
+ 

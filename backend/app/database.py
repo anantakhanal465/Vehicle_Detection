@@ -45,3 +45,4 @@ def ensure_schema():
                     "ALTER TABLE detection_records ADD COLUMN image_url VARCHAR"
                 )
             )
+ 

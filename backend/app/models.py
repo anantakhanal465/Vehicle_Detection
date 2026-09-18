@@ -20,3 +20,4 @@ class DetectionRecord(Base):
     frames_processed = Column(Integer, nullable=True)
     download_url = Column(String, nullable=True)
     image_url = Column(String, nullable=True)
+ 

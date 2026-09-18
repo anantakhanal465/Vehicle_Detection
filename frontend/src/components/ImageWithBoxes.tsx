@@ -73,3 +73,4 @@ export function ImageWithBoxes({ src, boxes }: ImageWithBoxesProps) {
     </div>
   );
 }
+ 

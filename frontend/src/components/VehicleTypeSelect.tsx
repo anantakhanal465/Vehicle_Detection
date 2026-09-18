@@ -27,3 +27,4 @@ export function VehicleTypeSelect({ value, onChange }: VehicleTypeSelectProps) {
     </label>
   );
 }
+ 

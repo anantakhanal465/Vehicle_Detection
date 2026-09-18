@@ -4,3 +4,4 @@ VEHICLE_CLASSES = {
     5: "bus",
     7: "truck"
 }
+ 

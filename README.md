@@ -601,3 +601,4 @@ presenting it honestly:
 | **Inference** | Actually *running* a trained model on new data (as opposed to training it) |
 | **API endpoint** | A specific URL a program can send a request to, to get something done (e.g. `/api/detection/image`) |
 | **Backend / frontend** | Backend = the server-side program doing the heavy lifting (Python here); frontend = the website the user actually sees and clicks on (React here) |
+ 

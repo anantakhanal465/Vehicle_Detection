@@ -71,3 +71,4 @@ export async function fetchHistory(limit = 20): Promise<HistoryRecord[]> {
   const response = await fetch(`/api/detection/history?limit=${limit}`);
   return parseOrThrow<HistoryRecord[]>(response);
 }
+ 

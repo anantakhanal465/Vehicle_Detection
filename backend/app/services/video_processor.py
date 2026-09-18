@@ -347,4 +347,4 @@ class VideoProcessor:
             "confidence": best_confidence,
             "attempts": (entry["attempts"] if entry else 0) + 1,
             "last_attempt_frame": frame_number
-        }
+        } 

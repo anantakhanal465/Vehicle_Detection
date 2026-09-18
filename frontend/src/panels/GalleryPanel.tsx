@@ -136,3 +136,4 @@ function asDetections(value: unknown): Detection[] {
 function asVehiclesWithPlate(value: unknown): VehicleWithPlate[] {
   return Array.isArray(value) ? (value as VehicleWithPlate[]) : [];
 }
+ 

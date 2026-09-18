@@ -261,3 +261,4 @@ class CharClassifier:
             gray, (IMAGE_SIZE, IMAGE_SIZE), interpolation=cv2.INTER_AREA
         )
         return torch.from_numpy(resized).float().unsqueeze(0) / 255.0
+ 

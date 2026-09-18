@@ -10,3 +10,4 @@ export function vehicleColor(vehicleType: string): string {
 }
 
 export const PLATE_COLOR = "#facc15";
+ 
